@@ -8,6 +8,7 @@ type OpenRouterMessage = {
   images?: OpenRouterImagePayload[]
   content?: Array<{
     type?: string
+    text?: string
     image_url?: string | { url?: string }
     imageUrl?: string | { url?: string }
     url?: string
