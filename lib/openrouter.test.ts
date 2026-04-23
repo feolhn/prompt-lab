@@ -47,3 +47,21 @@ test('parseOpenRouterImageBase64 supports content-array image payloads', () => {
 
   assert.equal(base64, 'xyz789')
 })
+
+test('parseOpenRouterImageBase64 falls back to b64_json payloads', () => {
+  const base64 = parseOpenRouterImageBase64({
+    choices: [
+      {
+        message: {
+          images: [
+            {
+              b64_json: 'b64payload',
+            },
+          ],
+        },
+      },
+    ],
+  })
+
+  assert.equal(base64, 'b64payload')
+})

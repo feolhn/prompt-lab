@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, useRef } from 'react'
 import { generateImage } from '@/app/actions'
 import { PROMPT_TEXTS, type PromptVersion, type Run } from '@/lib/types'
 
@@ -40,7 +40,20 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
   const [compareIds, setCompareIds] = useState<string[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [promptExpanded, setPromptExpanded] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
   const [isPending, startTransition] = useTransition()
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (isPending) {
+      setElapsed(0)
+      timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000)
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [isPending])
 
   const groups = groupRuns(runs)
   const compareRuns = runs.filter((r) => compareIds.includes(r.id))
@@ -128,8 +141,16 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
             </div>
           ) : (
             <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-              <p className="text-xs font-medium text-gray-500 mb-1">当前 Prompt：</p>
-              <p className="text-xs text-gray-500 leading-relaxed line-clamp-5 whitespace-pre-wrap">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-medium text-gray-500">当前 Prompt：</p>
+                <button
+                  onClick={() => setPromptExpanded((v) => !v)}
+                  className="text-xs text-blue-500 hover:text-blue-700"
+                >
+                  {promptExpanded ? '收起' : '展开'}
+                </button>
+              </div>
+              <p className={`text-xs text-gray-500 leading-relaxed whitespace-pre-wrap ${promptExpanded ? '' : 'line-clamp-4'}`}>
                 {PROMPT_TEXTS[promptVersion]}
               </p>
             </div>
@@ -169,7 +190,7 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
-                生成中…
+                生成中… {elapsed}s
               </span>
             ) : (
               '生成图片'

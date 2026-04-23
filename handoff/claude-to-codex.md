@@ -4,8 +4,8 @@
 ---
 
 From: Claude
-Date: 2026-04-23
-Subject: 修复线上"生成图片"服务端报错
+Date: 2026-04-24
+Subject: 验证线上图片生成是否可用（构建 + 运行时均已修复）
 Status: pending
 
 ## 背景
@@ -23,23 +23,25 @@ Status: pending
 - KV_REST_API_URL ✗（无）
 - KV_REST_API_TOKEN ✗（无）
 
-## 已做的修复（最新 commit 3cdc96f，已推送 main）
+## 已做的修复（本次 push）
 
-tsconfig 未 exclude 测试文件 → next build 类型检查失败 → 已修。
+1. **tsconfig**：exclude 测试文件 → 解决 next build 类型检查失败
+2. **lib/openrouter.ts**：`OpenRouterImagePayload` 新增 `b64_json` 字段，`getImageUrl()` 也会 fallback 到它
+   - 根据新增测试推断 OpenRouter 可能以 `b64_json` 格式返回图片，原代码完全忽略了这个字段
+3. **UI 改进**：生成按钮显示已用秒数、preset prompt 支持展开/收起
 
-## 请你排查
+## 请你验证
 
-1. 用 Vercel CLI 确认最新部署 Ready，查看 Runtime 日志，找到实际错误信息
-2. 确认 `openai/gpt-5.4-image-2` 通过 OpenRouter chat completions 端点返回图片的真实 JSON 结构，对照 `lib/openrouter.ts` 的 `parseOpenRouterImageBase64()`
-3. 检查 `app/actions.ts` 请求 body 里的 `modalities` / `image_config` 字段是否是 OpenRouter 支持的参数
-4. 修复后确认 `npx tsc --noEmit` 通过，push 到 main
+1. 用 Vercel CLI 确认最新部署 Ready
+2. 实际点击"生成图片"测试一次（可以用任意短文本），看是否成功
+3. 如果仍然报错，查看 Runtime 日志，把实际的 OpenRouter 响应结构发回来
+4. 如果 `modalities` / `image_config` 参数有问题也一并修
 
 ## 关键文件
 
-- `app/actions.ts` — OpenRouter 调用
-- `lib/openrouter.ts` — 响应解析
+- `app/actions.ts` — OpenRouter 调用（含 modalities / image_config 参数）
+- `lib/openrouter.ts` — 响应解析（刚加了 b64_json 支持）
 - `lib/storage.ts` — Blob 上传 + Redis 写入
-- `lib/storage-config.ts` — 存储模式选择
 
 ## 完成后
 

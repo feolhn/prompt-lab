@@ -2,6 +2,7 @@ type OpenRouterImagePayload = {
   image_url?: string | { url?: string }
   imageUrl?: string | { url?: string }
   url?: string
+  b64_json?: string
 }
 
 type OpenRouterMessage = {
@@ -28,7 +29,7 @@ function getImageUrl(payload?: OpenRouterImagePayload): string | undefined {
   if (typeof payload.image_url === 'string') return payload.image_url
   if (typeof payload.imageUrl === 'string') return payload.imageUrl
 
-  return payload.image_url?.url ?? payload.imageUrl?.url ?? payload.url
+  return payload.image_url?.url ?? payload.imageUrl?.url ?? payload.url ?? payload.b64_json
 }
 
 function stripDataUrlPrefix(value: string): string {
