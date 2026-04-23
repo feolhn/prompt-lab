@@ -1,23 +1,28 @@
 import { kv } from '@vercel/kv'
 import { put } from '@vercel/blob'
 import { createHash } from 'crypto'
-import { createClient, type RedisClientType } from 'redis'
+import { createClient } from 'redis'
 import type { Run } from './types'
 import { getRunStoreMode } from './storage-config'
 
 const RUNS_KEY = 'prompt-lab:runs'
 const storeMode = getRunStoreMode(process.env)
 
-let redisClientPromise: Promise<RedisClientType> | null = null
+type RedisClient = ReturnType<typeof createClient>
 
-function getRedisClient(): Promise<RedisClientType> {
+let redisClientPromise: Promise<RedisClient> | null = null
+
+function getRedisClient(): Promise<RedisClient> {
   if (!process.env.REDIS_URL) {
     throw new Error('未配置 REDIS_URL')
   }
 
   if (!redisClientPromise) {
-    const client = createClient({ url: process.env.REDIS_URL })
-    redisClientPromise = client.connect().then(() => client)
+    redisClientPromise = (async () => {
+      const client = createClient({ url: process.env.REDIS_URL })
+      await client.connect()
+      return client
+    })()
   }
 
   return redisClientPromise
