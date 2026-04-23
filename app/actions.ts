@@ -1,14 +1,68 @@
 'use server'
 
-import OpenAI from 'openai'
 import { randomUUID } from 'crypto'
 import { getAllRuns, hashContent, saveRun, uploadImage } from '@/lib/storage'
 import { PROMPT_TEXTS, type PromptVersion, type Run } from '@/lib/types'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: 'https://openrouter.ai/api/v1',
-})
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+const OPENROUTER_MODEL = 'openai/gpt-5.4-image-2'
+
+type OpenRouterImage = {
+  image_url?: { url?: string }
+  imageUrl?: { url?: string }
+}
+
+async function generateOpenRouterImage(prompt: string): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    throw new Error('未配置 OPENROUTER_API_KEY')
+  }
+
+  const response = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      modalities: ['image', 'text'],
+      image_config: {
+        aspect_ratio: '2:3',
+        image_size: '1K',
+      },
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`OpenRouter 请求失败（${response.status}）：${errorText.slice(0, 200)}`)
+  }
+
+  const result = (await response.json()) as {
+    choices?: Array<{
+      message?: {
+        images?: OpenRouterImage[]
+      }
+    }>
+  }
+
+  const imageUrl =
+    result.choices?.[0]?.message?.images?.[0]?.image_url?.url ??
+    result.choices?.[0]?.message?.images?.[0]?.imageUrl?.url
+
+  if (!imageUrl) {
+    throw new Error('OpenRouter 未返回图片数据')
+  }
+
+  const base64 = imageUrl.startsWith('data:') ? imageUrl.split(',', 2)[1] : imageUrl
+  if (!base64) {
+    throw new Error('OpenRouter 返回的图片数据格式不正确')
+  }
+
+  return base64
+}
 
 export async function generateImage(
   content: string,
@@ -26,17 +80,7 @@ export async function generateImage(
     : ''
 
   const fullPrompt = `${basePrompt}\n\n${content}${stylePart}`
-
-  const response = await openai.images.generate({
-    model: 'openai/gpt-5.4-image-2' as string,
-    prompt: fullPrompt,
-    size: '1024x1536',
-    n: 1,
-    response_format: 'b64_json',
-  })
-
-  const b64 = response.data?.[0]?.b64_json
-  if (!b64) throw new Error('模型未返回图片数据')
+  const b64 = await generateOpenRouterImage(fullPrompt)
 
   const id = randomUUID()
   const imageUrl = await uploadImage(b64, id)
