@@ -394,6 +394,17 @@ function RunCard({
 }
 
 function ImageModal({ run, onClose }: { run: Run; onClose: () => void }) {
+  async function handleDownload() {
+    const res = await fetch(run.imageUrl)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `180k-${run.id.slice(0, 8)}.png`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div
       className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4"
@@ -405,8 +416,16 @@ function ImageModal({ run, onClose }: { run: Run; onClose: () => void }) {
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={run.imageUrl} alt="生成图片" className="max-w-xs w-full rounded-xl" />
-        <div className="text-center mt-2 text-sm text-gray-300">
-          {new Date(run.createdAt).toLocaleString('zh')}
+        <div className="flex items-center justify-between mt-2 px-1">
+          <span className="text-sm text-gray-300">
+            {new Date(run.createdAt).toLocaleString('zh')}
+          </span>
+          <button
+            onClick={handleDownload}
+            className="text-sm text-white/70 hover:text-white underline underline-offset-2"
+          >
+            下载
+          </button>
         </div>
       </div>
       <button
