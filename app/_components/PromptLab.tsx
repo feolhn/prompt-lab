@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { generateImage } from '@/app/actions'
-import { PROMPT_TEXTS, type PromptVersion, type Run } from '@/lib/types'
+import { DEFAULT_PROMPT, type Run } from '@/lib/types'
 
 type Group = { hash: string; snippet: string; runs: Run[] }
 
@@ -17,33 +17,26 @@ function groupRuns(runs: Run[]): Group[] {
   return Array.from(map.values())
 }
 
-const VERSION_COLORS: Record<PromptVersion, string> = {
-  A: 'bg-orange-500',
-  B: 'bg-green-500',
-  C: 'bg-blue-500',
-  custom: 'bg-purple-500',
-}
-
-const VERSION_LABELS: Record<PromptVersion, string> = {
-  A: '方案 A',
-  B: '方案 B',
-  C: '方案 C',
-  custom: '自定义',
+type Attachment = {
+  base64: string
+  mimeType: string
+  filename: string
 }
 
 export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
   const [runs, setRuns] = useState<Run[]>(initialRuns)
   const [content, setContent] = useState('')
-  const [promptVersion, setPromptVersion] = useState<PromptVersion>('C')
-  const [customPrompt, setCustomPrompt] = useState('')
+  const [attachment, setAttachment] = useState<Attachment | null>(null)
+  const [promptText, setPromptText] = useState(DEFAULT_PROMPT)
   const [stylePrompt, setStylePrompt] = useState('')
+  const [imageSize, setImageSize] = useState<'1K' | '2K'>('1K')
   const [compareIds, setCompareIds] = useState<string[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [promptExpanded, setPromptExpanded] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [isPending, startTransition] = useTransition()
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (isPending) {
@@ -58,16 +51,31 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
   const groups = groupRuns(runs)
   const compareRuns = runs.filter((r) => compareIds.includes(r.id))
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      const base64 = dataUrl.split(',', 2)[1] ?? ''
+      setAttachment({ base64, mimeType: file.type, filename: file.name })
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
   function handleGenerate() {
-    if (!content.trim()) return
+    if (!content.trim() && !attachment) return
     setError(null)
     startTransition(async () => {
       try {
         const run = await generateImage(
           content,
-          promptVersion,
-          promptVersion === 'custom' ? customPrompt : undefined,
+          'custom',
+          promptText,
           stylePrompt || undefined,
+          attachment ?? undefined,
+          imageSize,
         )
         setRuns((prev) => [run, ...prev])
       } catch (e) {
@@ -98,63 +106,87 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">原始内容</label>
             <textarea
-              className="w-full h-52 text-sm border border-gray-300 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
-              placeholder="粘贴原始文章内容..."
+              className="w-full h-40 text-sm border border-gray-300 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+              placeholder="粘贴原始文章内容（可选，支持同时上传文件）..."
               value={content}
               onChange={(e) => setContent(e.target.value)}
               disabled={isPending}
             />
           </div>
 
-          {/* Prompt 方案选择 */}
+          {/* 文件上传 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Prompt 方案</label>
-            <div className="grid grid-cols-2 gap-1.5">
-              {(['A', 'B', 'C', 'custom'] as PromptVersion[]).map((v) => (
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              上传文件
+              <span className="ml-1 text-gray-400 font-normal">（PDF / 图片，可选）</span>
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf,image/*"
+              className="hidden"
+              onChange={handleFileChange}
+              disabled={isPending}
+            />
+            {attachment ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                <span className="text-sm text-blue-700 truncate flex-1" title={attachment.filename}>
+                  {attachment.mimeType === 'application/pdf' ? '📄' : '🖼️'} {attachment.filename}
+                </span>
                 <button
-                  key={v}
-                  onClick={() => setPromptVersion(v)}
+                  onClick={() => setAttachment(null)}
                   disabled={isPending}
-                  className={`py-1.5 text-sm rounded-md font-medium transition-colors ${
-                    promptVersion === v
+                  className="text-blue-400 hover:text-blue-600 flex-shrink-0 text-xs"
+                  aria-label="移除文件"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isPending}
+                className="w-full py-2 text-sm border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                点击选择文件
+              </button>
+            )}
+          </div>
+
+          {/* Prompt 编辑器 */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Prompt</label>
+            <textarea
+              className="w-full h-40 text-sm border border-gray-300 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              disabled={isPending}
+            />
+          </div>
+
+          {/* 清晰度 */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+              清晰度
+              <span className="ml-1 text-gray-400 font-normal">（2K 更慢、更贵）</span>
+            </label>
+            <div className="flex gap-2">
+              {(['1K', '2K'] as const).map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setImageSize(size)}
+                  disabled={isPending}
+                  className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                    imageSize === size
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
                 >
-                  {VERSION_LABELS[v]}
+                  {size}
                 </button>
               ))}
             </div>
           </div>
-
-          {/* 自定义 prompt 编辑器 */}
-          {promptVersion === 'custom' ? (
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">自定义 Prompt</label>
-              <textarea
-                className="w-full h-36 text-sm border border-gray-300 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-                placeholder="输入自定义 prompt..."
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                disabled={isPending}
-              />
-            </div>
-          ) : (
-            <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs font-medium text-gray-500">当前 Prompt：</p>
-                <button
-                  onClick={() => setPromptExpanded((v) => !v)}
-                  className="text-xs text-blue-500 hover:text-blue-700"
-                >
-                  {promptExpanded ? '收起' : '展开'}
-                </button>
-              </div>
-              <p className={`text-xs text-gray-500 leading-relaxed whitespace-pre-wrap ${promptExpanded ? '' : 'line-clamp-4'}`}>
-                {PROMPT_TEXTS[promptVersion]}
-              </p>
-            </div>
-          )}
 
           {/* 风格提示词 */}
           <div>
@@ -181,7 +213,7 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
           {/* 生成按钮 */}
           <button
             onClick={handleGenerate}
-            disabled={isPending || !content.trim()}
+            disabled={isPending || (!content.trim() && !attachment)}
             className="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {isPending ? (
@@ -298,6 +330,8 @@ function RunCard({
   onToggleCompare: () => void
   onExpand: () => void
 }) {
+  const [promptOpen, setPromptOpen] = useState(false)
+
   return (
     <div
       className={`rounded-lg border-2 overflow-hidden transition-all ${
@@ -311,11 +345,6 @@ function RunCard({
           alt="生成图片"
           className="w-full h-44 object-cover object-top bg-gray-100"
         />
-        <span
-          className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 text-xs font-bold text-white rounded ${VERSION_COLORS[run.promptVersion]}`}
-        >
-          {run.promptVersion === 'custom' ? '自定' : run.promptVersion}
-        </span>
       </div>
       <div className="px-2 pt-1.5 pb-1 bg-white flex items-center justify-between gap-1">
         <time className="text-xs text-gray-400" dateTime={run.createdAt}>
@@ -324,23 +353,40 @@ function RunCard({
             minute: '2-digit',
           })}
         </time>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggleCompare()
-          }}
-          className={`text-xs px-2 py-0.5 rounded transition-colors ${
-            selected
-              ? 'bg-indigo-100 text-indigo-700'
-              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-          }`}
-        >
-          {selected ? '已选' : '对比'}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => { e.stopPropagation(); setPromptOpen((v) => !v) }}
+            className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+          >
+            {promptOpen ? '收起' : 'Prompt'}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleCompare() }}
+            className={`text-xs px-2 py-0.5 rounded transition-colors ${
+              selected
+                ? 'bg-indigo-100 text-indigo-700'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >
+            {selected ? '已选' : '对比'}
+          </button>
+        </div>
       </div>
-      {run.stylePrompt && (
+      {promptOpen && (
+        <div className="px-2 pb-2 bg-white">
+          <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-wrap bg-gray-50 rounded p-2 border border-gray-100">
+            {run.promptText}
+          </p>
+          {run.stylePrompt && (
+            <p className="mt-1 text-xs text-gray-400 truncate" title={run.stylePrompt}>
+              风格：{run.stylePrompt}
+            </p>
+          )}
+        </div>
+      )}
+      {!promptOpen && run.stylePrompt && (
         <p className="px-2 pb-1.5 text-xs text-gray-400 truncate bg-white" title={run.stylePrompt}>
-          🎨 {run.stylePrompt}
+          风格：{run.stylePrompt}
         </p>
       )}
     </div>
@@ -360,7 +406,6 @@ function ImageModal({ run, onClose }: { run: Run; onClose: () => void }) {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={run.imageUrl} alt="生成图片" className="max-w-xs w-full rounded-xl" />
         <div className="text-center mt-2 text-sm text-gray-300">
-          {VERSION_LABELS[run.promptVersion]} ·{' '}
           {new Date(run.createdAt).toLocaleString('zh')}
         </div>
       </div>
@@ -388,11 +433,6 @@ function CompareModal({ runs, onClose }: { runs: [Run, Run]; onClose: () => void
           onClick={(e) => e.stopPropagation()}
         >
           <div className="text-white text-sm font-medium">
-            <span
-              className={`inline-block px-2 py-0.5 rounded text-xs font-bold mr-2 ${VERSION_COLORS[run.promptVersion]}`}
-            >
-              {run.promptVersion === 'custom' ? '自定义' : `方案 ${run.promptVersion}`}
-            </span>
             {new Date(run.createdAt).toLocaleString('zh')}
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
