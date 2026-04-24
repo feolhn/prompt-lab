@@ -5,15 +5,17 @@ type OpenRouterImagePayload = {
   b64_json?: string
 }
 
+type OpenRouterContentItem = {
+  type?: string
+  text?: string
+  image_url?: string | { url?: string }
+  imageUrl?: string | { url?: string }
+  url?: string
+}
+
 type OpenRouterMessage = {
   images?: OpenRouterImagePayload[]
-  content?: Array<{
-    type?: string
-    text?: string
-    image_url?: string | { url?: string }
-    imageUrl?: string | { url?: string }
-    url?: string
-  }>
+  content?: string | OpenRouterContentItem[]
 }
 
 type OpenRouterResponse = {
@@ -37,18 +39,23 @@ function stripDataUrlPrefix(value: string): string {
 }
 
 export function parseOpenRouterImageBase64(result: OpenRouterResponse): string {
+  const messageContent = result.choices?.[0]?.message?.content
+  const contentImageUrl = Array.isArray(messageContent)
+    ? messageContent
+        .map((item) =>
+          getImageUrl({
+            image_url: item.image_url,
+            imageUrl: item.imageUrl,
+            url: item.url,
+          }),
+        )
+        .find(Boolean)
+    : undefined
+
   const imageUrl =
     getImageUrl(result.choices?.[0]?.message?.images?.[0]) ??
     getImageUrl(result.images?.[0]) ??
-    result.choices?.[0]?.message?.content
-      ?.map((item) =>
-        getImageUrl({
-          image_url: item.image_url,
-          imageUrl: item.imageUrl,
-          url: item.url,
-        }),
-      )
-      .find(Boolean)
+    contentImageUrl
 
   const base64 = imageUrl ? stripDataUrlPrefix(imageUrl) : ''
   if (!base64) {
