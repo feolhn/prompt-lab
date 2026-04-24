@@ -16,29 +16,36 @@ type Attachment = {
 
 type ContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'image_url'; imageUrl: { url: string } }
   | { type: 'file'; file: { filename: string; file_data: string } }
 
-function buildContentParts(prompt: string, attachment?: Attachment): ContentPart[] {
-  const parts: ContentPart[] = [{ type: 'text', text: prompt }]
-  if (!attachment) return parts
+const ATTACHMENT_INSTRUCTION =
+  '\n\nIMPORTANT: Use the attached file as reference material for the poster. ' +
+  'Your response MUST be a generated image. Do NOT return text analysis or description.'
+
+function buildContentParts(prompt: string, attachment: Attachment): ContentPart[] {
+  const textPart: ContentPart = { type: 'text', text: prompt + ATTACHMENT_INSTRUCTION }
 
   if (attachment.mimeType === 'application/pdf') {
-    parts.push({
-      type: 'file',
-      file: {
-        filename: attachment.filename,
-        file_data: `data:application/pdf;base64,${attachment.base64}`,
+    return [
+      textPart,
+      {
+        type: 'file',
+        file: {
+          filename: attachment.filename,
+          file_data: `data:application/pdf;base64,${attachment.base64}`,
+        },
       },
-    })
-  } else {
-    parts.push({
-      type: 'image_url',
-      image_url: { url: `data:${attachment.mimeType};base64,${attachment.base64}` },
-    })
+    ]
   }
 
-  return parts
+  return [
+    textPart,
+    {
+      type: 'image_url',
+      imageUrl: { url: `data:${attachment.mimeType};base64,${attachment.base64}` },
+    },
+  ]
 }
 
 async function generateOpenRouterImage(
