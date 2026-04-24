@@ -2,18 +2,26 @@
 
 # 跨 Agent 协作
 
-handoff/ 目录是 Claude 和 Codex 的消息箱：
-- `handoff/claude-to-codex.md` — Claude 写给 Codex 的任务
-- `handoff/codex-to-claude.md` — Codex 写回的结论
+## 共享白板
 
-**每次对话开始时先读 `handoff/codex-to-claude.md`**，看是否有 Codex 的回复需要处理。
-写给 Codex 的任务追加到 `handoff/claude-to-codex.md` 顶部，格式参照文件内已有示例。
+`STATE.md` 是唯一的共享状态文件，两个 agent 直接覆盖更新，不是 append。
+每次对话开始先读它，结束前更新它。
 
-# Vercel 运行时问题处理规范
+## 分工原则
 
-Codex app 装有 Vercel CLI plugin，可以直接查看生产日志、环境变量和部署状态。
+| 任务类型 | 交给谁 |
+|----------|--------|
+| 规划、架构、复杂推理 | Claude Code |
+| 代码实现、调试、review | Claude Code 里的 `/codex:rescue` |
+| 联网搜索、查文档、查 API 格式 | Codex app |
+| Vercel 运行时日志、部署验证 | Codex app（有 Vercel CLI plugin）|
 
-遇到 Vercel 线上运行时错误（非构建错误）时：
-- 不要用 Claude Code 的 codex:rescue skill 去处理
-- 由 Claude Code 写一个 handoff prompt，用户复制给 Codex app 执行
-- handoff prompt 需包含：生产域名、仓库、错误现象、已确认环境变量、关键文件路径、需要排查的层级
+## Vercel 运行时问题处理
+
+遇到线上运行时错误时，Claude Code 不处理，由 Claude Code 写 handoff prompt，用户复制给 Codex app。
+
+handoff prompt 需包含：
+- 生产域名、仓库
+- `STATE.md` 路径（让 Codex 直接读）
+- 要做什么（验证部署 / 查日志 / 搜索 API 文档）
+- 完成后更新 `STATE.md`
