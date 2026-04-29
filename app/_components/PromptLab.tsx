@@ -24,6 +24,22 @@ const CANVAS_LABELS: Record<Canvas, string> = {
 
 const QUICK_CHIPS = ['更简洁', '换配色', '更多细节', '中英双语', '突出关键数字']
 
+const THINKING_PHRASES = [
+  '正在读取内容…',
+  '理解文章结构…',
+  '提炼核心观点…',
+  '规划视觉层次…',
+  '生成图片脚本…',
+]
+
+const GENERATING_PHRASES = [
+  '构建画面布局…',
+  '渲染图形元素…',
+  '调整色彩层次…',
+  '细化文字排版…',
+  '即将完成…',
+]
+
 type Attachment = { blobUrl: string; mimeType: string; filename: string }
 type UserMsg = { role: 'user'; text: string; attachmentName?: string }
 type AssistantMsg = { role: 'assistant' } & ProviderOutput
@@ -243,7 +259,8 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
             <div className="flex justify-start">
               <div className="bg-gray-50 border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
                 <span className="text-sm text-gray-400 animate-pulse">
-                  正在分析内容… {formatElapsed(thinkingSeconds)}
+                  {THINKING_PHRASES[Math.floor(thinkingSeconds / 8) % THINKING_PHRASES.length]}
+                  <span className="text-xs ml-1.5 opacity-60">{formatElapsed(thinkingSeconds)}</span>
                 </span>
               </div>
             </div>
@@ -253,7 +270,8 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
             <div className="flex justify-start">
               <div className="bg-gray-50 border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
                 <span className="text-sm text-gray-400 animate-pulse">
-                  正在生成图片… {formatElapsed(generatingSeconds)}
+                  {GENERATING_PHRASES[Math.floor(generatingSeconds / 8) % GENERATING_PHRASES.length]}
+                  <span className="text-xs ml-1.5 opacity-60">{formatElapsed(generatingSeconds)}</span>
                 </span>
               </div>
             </div>
