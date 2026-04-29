@@ -72,6 +72,17 @@
 - `lib/providers/openai-image.ts` 改为 `output_format: "png"`。
 - 仍从 `data[0].b64_json` 读取返回图片。
 
+### 问题 4：PDF 附件传给 Kimi chat 报 invalid part type: file
+
+**现象**：线上上传 PDF 后，Kimi 返回 400：`message ... contains an invalid part type: file`。
+
+**根本原因**：Kimi chat completions 不接受当前代码构造的 `{ type: "file" }` message part。integration-lab 已验证的 Kimi 文件路径是先走 Files API `purpose=file-extract`，再读取 `/files/{file_id}/content`，最后把提取文本放入 chat message。
+
+**处理结果（2026-04-29）**：
+- `lib/provider-attachments.ts` 对 `application/pdf` 附件改为：下载 Blob → `POST /v1/files` 上传到 Kimi → `GET /v1/files/{id}/content` 获取正文 → 写入 `attachment.extractedText`。
+- `lib/providers/kimi.ts` 不再发送 `type: "file"`；PDF 附件会作为普通文本 part 传给 Kimi。
+- 如果 PDF 没有提前提取文本，provider 会 fail fast：`PDF 附件尚未提取文本`。
+
 ---
 
 ## 架构说明（供 Codex 参考）
@@ -129,7 +140,7 @@ app/api/uploads/token/route.ts  # Vercel Blob 直传 token
 
 - [x] URL 输入 → 触发 Kimi `$web_search` 工具路径（代码与请求体测试通过）
 - [x] 纯文本输入 → Kimi 正常返回结构化 JSON
-- [ ] PDF 上传 → Kimi 正常处理
+- [x] PDF 上传 → 走 Kimi Files API 提取文本后再交给 Kimi chat（代码与单测通过）
 - [x] 图片上传 → 服务端将 Blob 图片转 `data:image/...;base64,...` 后交给 Kimi，产品级 smoke 通过
 - [x] 确认生成 → 已切到 Poe Image2，Preview 产品级 smoke 通过
 - [x] 历史记录删除 → Redis + Blob 同步删除，Preview 产品级 smoke 通过
@@ -168,7 +179,7 @@ app/api/uploads/token/route.ts  # Vercel Blob 直传 token
 
 ### 本地验证（2026-04-29 UI 批次二）
 
-- `node --test lib/*.test.ts lib/providers/*.test.ts` ✅ 15 tests passed
+- `node --test lib/*.test.ts lib/providers/*.test.ts` ✅ 16 tests passed
 - `npm run lint` ✅
 - `npm run build` ✅
 - 后端合同已补齐：`lib/providers/types.ts` 导出 `IMAGE_CANVAS_OPTIONS` / `IMAGE_QUALITY_OPTIONS`；`POST /api/prompt-lab/generate` 校验 `canvas` 和 `qualityHint` 后传给 Poe；新 `Run` 会存 `canvas` / `qualityHint`，老历史缺省由 UI 按 `1024x1536` / `low` 处理

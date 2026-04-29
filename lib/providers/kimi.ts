@@ -71,9 +71,10 @@ function buildMessages(input: ProviderInput, isRevise: boolean) {
     if (input.attachments && input.attachments.length > 0) {
       for (const att of input.attachments) {
         if (att.mimeType === 'application/pdf') {
+          if (!att.extractedText) throw new Error(`PDF 附件尚未提取文本：${att.filename}`)
           contentParts.push({
-            type: 'file',
-            file: { url: att.blobUrl, filename: att.filename },
+            type: 'text',
+            text: `以下是 PDF 附件「${att.filename}」经 Kimi Files API 提取的真实文本内容，请基于该内容分析，不要猜测文件内容。\n\n${att.extractedText}`,
           })
         } else if (att.mimeType.startsWith('image/')) {
           contentParts.push({

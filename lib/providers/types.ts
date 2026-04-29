@@ -14,6 +14,7 @@ export type ProviderAttachment = {
   mimeType: string
   filename: string
   dataUrl?: string
+  extractedText?: string
 }
 
 export type ProviderInput = {
