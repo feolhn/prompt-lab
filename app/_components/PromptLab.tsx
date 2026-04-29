@@ -1,394 +1,567 @@
 'use client'
 
-import { useState, useTransition, useEffect, useRef } from 'react'
-import { generateImage } from '@/app/actions'
-import { DEFAULT_PROMPT, type Run } from '@/lib/types'
+import { useState, useRef, useEffect } from 'react'
+import { upload } from '@vercel/blob/client'
+import type { Run } from '@/lib/types'
+import type { ProviderOutput, ConversationMessage, ImageCanvas, ImageQuality } from '@/lib/providers/types'
+import { IMAGE_CANVAS_OPTIONS, IMAGE_QUALITY_OPTIONS } from '@/lib/providers/types'
 
-type Group = { hash: string; snippet: string; runs: Run[] }
+type Quality = ImageQuality
+type Canvas = ImageCanvas
 
-function groupRuns(runs: Run[]): Group[] {
-  const map = new Map<string, Group>()
-  for (const run of runs) {
-    if (!map.has(run.contentHash)) {
-      map.set(run.contentHash, { hash: run.contentHash, snippet: run.contentSnippet, runs: [] })
-    }
-    map.get(run.contentHash)!.runs.push(run)
-  }
-  return Array.from(map.values())
+const QUALITY_LABELS: Record<Quality, string> = { low: '低', medium: '中', high: '高' }
+const QUALITY_DESCS: Record<Quality, string> = {
+  low: '低价快速，适合草图预览',
+  medium: '成本均衡，适合日常成图',
+  high: '最高质量，适合最终交付',
 }
 
-type Attachment = {
-  base64: string
-  mimeType: string
-  filename: string
+const CANVAS_LABELS: Record<Canvas, string> = {
+  '1024x1536': '竖版',
+  '1536x1024': '横版',
+  '1024x1024': '方版',
+}
+
+const QUICK_CHIPS = ['更简洁', '换配色', '更多细节', '中英双语', '突出关键数字']
+
+type Attachment = { blobUrl: string; mimeType: string; filename: string }
+type UserMsg = { role: 'user'; text: string; attachmentName?: string }
+type AssistantMsg = { role: 'assistant' } & ProviderOutput
+type ImageMsg = { role: 'image'; run: Run }
+type ChatMsg = UserMsg | AssistantMsg | ImageMsg
+
+type GenerateParams = {
+  imagePromptEn: string
+  artifactSpec: string
+  canvas: Canvas
+  quality: Quality
+  inputSummaryCn: string
+}
+
+function formatElapsed(seconds: number) {
+  if (seconds < 60) return `${seconds}秒`
+  return `${Math.floor(seconds / 60)}分${seconds % 60}秒`
 }
 
 export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
+  const [messages, setMessages] = useState<ChatMsg[]>([])
   const [runs, setRuns] = useState<Run[]>(initialRuns)
-  const [content, setContent] = useState('')
+  const [input, setInput] = useState('')
   const [attachment, setAttachment] = useState<Attachment | null>(null)
-  const [promptText, setPromptText] = useState(DEFAULT_PROMPT)
-  const [stylePrompt, setStylePrompt] = useState('')
-  const [imageSize, setImageSize] = useState<'1K' | '2K'>('1K')
-  const [compareIds, setCompareIds] = useState<string[]>([])
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [isThinking, setIsThinking] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [thinkingSeconds, setThinkingSeconds] = useState(0)
+  const [generatingSeconds, setGeneratingSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [elapsed, setElapsed] = useState(0)
-  const [isPending, startTransition] = useTransition()
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [expandedModal, setExpandedModal] = useState<Run | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const [uploadingFile, setUploadingFile] = useState(false)
+
+  const hasConversation = messages.some((m) => m.role === 'assistant')
 
   useEffect(() => {
-    if (isPending) {
-      setElapsed(0)
-      timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000)
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [isPending])
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
-  const groups = groupRuns(runs)
-  const compareRuns = runs.filter((r) => compareIds.includes(r.id))
+  useEffect(() => {
+    if (!isThinking) return
+    const timer = window.setInterval(() => setThinkingSeconds((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [isThinking])
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  useEffect(() => {
+    if (!isGenerating) return
+    const timer = window.setInterval(() => setGeneratingSeconds((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [isGenerating])
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = reader.result as string
-      const base64 = dataUrl.split(',', 2)[1] ?? ''
-      setAttachment({ base64, mimeType: file.type, filename: file.name })
-    }
-    reader.readAsDataURL(file)
     e.target.value = ''
-  }
-
-  function handleGenerate() {
-    if (!content.trim() && !attachment) return
+    setUploadingFile(true)
     setError(null)
-    startTransition(async () => {
-      try {
-        const run = await generateImage(
-          content,
-          'custom',
-          promptText,
-          stylePrompt || undefined,
-          attachment ?? undefined,
-          imageSize,
-        )
-        setRuns((prev) => [run, ...prev])
-      } catch (e) {
-        setError(e instanceof Error ? e.message : '生成失败，请重试')
-      }
-    })
+    try {
+      const objectName = `uploads/${crypto.randomUUID()}-${file.name}`
+      const blob = await upload(objectName, file, {
+        access: 'public',
+        handleUploadUrl: '/api/uploads/token',
+      })
+      setAttachment({ blobUrl: blob.url, mimeType: file.type, filename: file.name })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '文件上传失败')
+    } finally {
+      setUploadingFile(false)
+    }
   }
 
-  function toggleCompare(id: string) {
-    setCompareIds((prev) => {
-      if (prev.includes(id)) return prev.filter((x) => x !== id)
-      if (prev.length >= 2) return [prev[1], id]
-      return [...prev, id]
-    })
+  async function handleSend(overrideText?: string) {
+    const text = (overrideText ?? input).trim()
+    if (!text && !attachment) return
+    setError(null)
+
+    const userMsg: UserMsg = { role: 'user', text, attachmentName: attachment?.filename }
+    const newMessages: ChatMsg[] = [...messages, userMsg]
+    setMessages(newMessages)
+    setInput('')
+    setAttachment(null)
+
+    const hasPrior = messages.some((m) => m.role === 'assistant')
+    const endpoint = hasPrior ? '/api/prompt-lab/revise' : '/api/prompt-lab/draft'
+
+    const conversation: ConversationMessage[] = newMessages
+      .filter((m): m is UserMsg | AssistantMsg => m.role === 'user' || m.role === 'assistant')
+      .map((m) =>
+        m.role === 'user'
+          ? { role: 'user' as const, content: m.text }
+          : { role: 'assistant' as const, content: (m as AssistantMsg).assistantSummaryCn },
+      )
+
+    setThinkingSeconds(0)
+    setIsThinking(true)
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          attachments: attachment ? [attachment] : [],
+          conversation: hasPrior ? conversation : undefined,
+        }),
+      })
+      const data = await res.json() as ProviderOutput & { error?: string }
+      if (data.error) throw new Error(data.error)
+      setMessages((prev) => [...prev, { role: 'assistant', ...data }])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '分析失败，请重试')
+      setMessages((prev) => prev.slice(0, -1))
+    } finally {
+      setIsThinking(false)
+    }
   }
+
+  async function handleGenerate({ imagePromptEn, artifactSpec, canvas, quality, inputSummaryCn }: GenerateParams) {
+    setError(null)
+    setGeneratingSeconds(0)
+    setIsGenerating(true)
+    try {
+      const res = await fetch('/api/prompt-lab/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imagePromptEn,
+          artifactSpec,
+          canvas,
+          qualityHint: quality,
+          inputSummaryCn,
+        }),
+      })
+      const data = await res.json() as Run & { error?: string }
+      if (data.error) throw new Error(data.error)
+      setMessages((prev) => [...prev, { role: 'image', run: data }])
+      setRuns((prev) => [data, ...prev])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '生图失败，请重试')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await fetch(`/api/prompt-lab/history/${id}`, { method: 'DELETE' })
+      setRuns((prev) => prev.filter((r) => r.id !== id))
+    } catch {
+      setError('删除失败，请重试')
+    }
+  }
+
+  const busy = isThinking || isGenerating || uploadingFile
 
   return (
-    <div className="flex h-full overflow-hidden bg-gray-50 text-gray-900">
-      {/* 左侧：输入区 */}
-      <aside className="w-88 flex-shrink-0 flex flex-col border-r border-gray-200 bg-white" style={{ width: 352 }}>
-        <div className="px-4 py-3 border-b border-gray-200">
-          <h1 className="text-base font-semibold tracking-tight">Prompt Lab</h1>
-          <p className="text-xs text-gray-400 mt-0.5">图片生成 prompt 调试工具</p>
-        </div>
+    <div className="flex flex-col h-full bg-white text-gray-900 max-w-lg mx-auto">
+      {/* Header */}
+      <header className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 flex-shrink-0">
+        <h1 className="font-semibold text-base tracking-tight">瞬见</h1>
+        <span className="text-xs text-gray-400 ml-auto">长文转信息图，一目了然</span>
+      </header>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* 内容输入 */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">原始内容</label>
-            <textarea
-              className="w-full h-40 text-sm border border-gray-300 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
-              placeholder="粘贴原始文章内容（可选，支持同时上传文件）..."
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              disabled={isPending}
-            />
-          </div>
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Chat area */}
+        <div className="px-4 py-4 space-y-3">
+          {messages.length === 0 && (
+            <p className="text-center text-sm text-gray-400 py-8">
+              粘贴文章、数据或上传文件，生成信息图
+            </p>
+          )}
 
-          {/* 文件上传 */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              上传文件
-              <span className="ml-1 text-gray-400 font-normal">（PDF / 图片，可选）</span>
-            </label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,image/*"
-              className="hidden"
-              onChange={handleFileChange}
-              disabled={isPending}
-            />
-            {attachment ? (
-              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
-                <span className="text-sm text-blue-700 truncate flex-1" title={attachment.filename}>
-                  {attachment.mimeType === 'application/pdf' ? '📄' : '🖼️'} {attachment.filename}
+          {messages.map((msg, i) => {
+            if (msg.role === 'user') {
+              return (
+                <div key={i} className="flex justify-end">
+                  <div className="max-w-[80%] bg-orange-50 border border-orange-100 rounded-2xl rounded-tr-sm px-4 py-3">
+                    {msg.attachmentName && (
+                      <p className="text-xs text-orange-400 mb-1">📎 {msg.attachmentName}</p>
+                    )}
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{msg.text}</p>
+                  </div>
+                </div>
+              )
+            }
+
+            if (msg.role === 'assistant') {
+              return (
+                <AssistantBubble
+                  key={i}
+                  msg={msg}
+                  onGenerate={(params) => handleGenerate(params)}
+                  disabled={busy}
+                />
+              )
+            }
+
+            if (msg.role === 'image') {
+              return (
+                <div key={i} className="flex justify-start">
+                  <div
+                    className="cursor-pointer rounded-xl overflow-hidden border border-gray-100 shadow-sm"
+                    onClick={() => setExpandedModal(msg.run)}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={msg.run.imageUrl} alt="生成图片" className="w-48 object-cover" />
+                  </div>
+                </div>
+              )
+            }
+
+            return null
+          })}
+
+          {isThinking && (
+            <div className="flex justify-start">
+              <div className="bg-gray-50 border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
+                <span className="text-sm text-gray-400 animate-pulse">
+                  正在分析内容… {formatElapsed(thinkingSeconds)}
                 </span>
-                <button
-                  onClick={() => setAttachment(null)}
-                  disabled={isPending}
-                  className="text-blue-400 hover:text-blue-600 flex-shrink-0 text-xs"
-                  aria-label="移除文件"
-                >
-                  ✕
-                </button>
               </div>
-            ) : (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isPending}
-                className="w-full py-2 text-sm border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                点击选择文件
-              </button>
-            )}
-          </div>
-
-          {/* Prompt 编辑器 */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Prompt</label>
-            <textarea
-              className="w-full h-40 text-sm border border-gray-300 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
-              value={promptText}
-              onChange={(e) => setPromptText(e.target.value)}
-              disabled={isPending}
-            />
-          </div>
-
-          {/* 清晰度 */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              清晰度
-              <span className="ml-1 text-gray-400 font-normal">（2K 更慢、更贵）</span>
-            </label>
-            <div className="flex gap-2">
-              {(['1K', '2K'] as const).map((size) => (
-                <button
-                  key={size}
-                  onClick={() => setImageSize(size)}
-                  disabled={isPending}
-                  className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors ${
-                    imageSize === size
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  } disabled:opacity-40 disabled:cursor-not-allowed`}
-                >
-                  {size}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 风格提示词 */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              风格提示词
-              <span className="ml-1 text-gray-400 font-normal">（可选，留空则由模型自行决定）</span>
-            </label>
-            <textarea
-              className="w-full h-20 text-sm border border-gray-300 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
-              placeholder="例：扁平插画风，主色调深蓝+白，无衬线字体，极简排版"
-              value={stylePrompt}
-              onChange={(e) => setStylePrompt(e.target.value)}
-              disabled={isPending}
-            />
-          </div>
-
-          {/* 错误提示 */}
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-lg">
-              {error}
             </div>
           )}
 
-          {/* 生成按钮 */}
-          <button
-            onClick={handleGenerate}
-            disabled={isPending || (!content.trim() && !attachment)}
-            className="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {isPending ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                生成中… {elapsed}s
-              </span>
-            ) : (
-              '生成图片'
-            )}
-          </button>
-        </div>
-      </aside>
-
-      {/* 右侧：历史区 */}
-      <main className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-sm font-semibold text-gray-700">
-              历史记录
-              {runs.length > 0 && (
-                <span className="ml-2 text-gray-400 font-normal">{runs.length} 条</span>
-              )}
-            </h2>
-            {compareIds.length === 2 && (
-              <button
-                onClick={() => setExpandedId('__compare__')}
-                className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                并排对比
-              </button>
-            )}
-          </div>
-
-          {groups.length === 0 ? (
-            <div className="text-center text-gray-400 py-24 text-sm">
-              暂无记录，生成第一张图片后显示
+          {isGenerating && (
+            <div className="flex justify-start">
+              <div className="bg-gray-50 border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
+                <span className="text-sm text-gray-400 animate-pulse">
+                  正在生成图片… {formatElapsed(generatingSeconds)}
+                </span>
+              </div>
             </div>
-          ) : (
-            <div className="space-y-5">
-              {groups.map((group) => (
-                <ContentGroup
-                  key={group.hash}
-                  group={group}
-                  compareIds={compareIds}
-                  onToggleCompare={toggleCompare}
-                  onExpand={setExpandedId}
+          )}
+
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* History */}
+        {runs.length > 0 && (
+          <div className="px-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-xs text-gray-400 flex-shrink-0">历史记录</span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
+            <div className="space-y-2">
+              {runs.map((run) => (
+                <HistoryItem
+                  key={run.id}
+                  run={run}
+                  onExpand={() => setExpandedModal(run)}
+                  onDelete={() => handleDelete(run.id)}
+                  onRegenerate={() =>
+                    handleGenerate({
+                      imagePromptEn: run.imagePromptEn,
+                      artifactSpec: run.artifactSpec,
+                      canvas: run.canvas ?? '1024x1536',
+                      quality: run.qualityHint ?? 'low',
+                      inputSummaryCn: run.inputSummaryCn,
+                    })
+                  }
+                  disabled={busy}
                 />
               ))}
             </div>
-          )}
+          </div>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="mx-4 mb-2 px-3 py-2 bg-red-50 border border-red-100 text-red-600 text-xs rounded-lg">
+          {error}
         </div>
-      </main>
+      )}
 
-      {/* 全屏查看 */}
-      {expandedId && expandedId !== '__compare__' && (() => {
-        const run = runs.find((r) => r.id === expandedId)
-        return run ? (
-          <ImageModal run={run} onClose={() => setExpandedId(null)} />
-        ) : null
-      })()}
+      {/* Quick chips */}
+      {hasConversation && !busy && (
+        <div className="px-4 pb-2 flex gap-2 overflow-x-auto flex-shrink-0 scrollbar-hide">
+          {QUICK_CHIPS.map((chip) => (
+            <button
+              key={chip}
+              onClick={() => handleSend(chip)}
+              className="flex-shrink-0 px-3 py-1 text-xs border border-gray-200 rounded-full text-gray-500 hover:border-orange-300 hover:text-orange-600 transition-colors"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* 并排对比 */}
-      {expandedId === '__compare__' && compareRuns.length === 2 && (
-        <CompareModal runs={compareRuns as [Run, Run]} onClose={() => setExpandedId(null)} />
+      {/* Input composer */}
+      <div className="flex-shrink-0 border-t border-gray-100 px-4 py-3 space-y-2 bg-white">
+        {attachment && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 border border-orange-100 rounded-lg">
+            <span className="text-xs text-orange-600 truncate flex-1">
+              {attachment.mimeType === 'application/pdf' ? '📄' : '🖼️'} {attachment.filename}
+            </span>
+            <button
+              onClick={() => setAttachment(null)}
+              className="text-orange-400 hover:text-orange-600 text-xs flex-shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        <div className="border border-gray-200 rounded-xl overflow-hidden focus-within:border-orange-300 focus-within:ring-1 focus-within:ring-orange-100">
+          <textarea
+            className="w-full px-4 pt-3 pb-1 text-sm resize-none focus:outline-none placeholder-gray-400 min-h-[72px] max-h-40"
+            placeholder="粘贴任何内容、链接或上传文件…"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={busy}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSend()
+            }}
+          />
+          <div className="flex items-center justify-between px-3 pb-2">
+            <div className="flex items-center gap-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,image/*"
+                className="hidden"
+                onChange={handleFileChange}
+                disabled={busy}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+                className="text-gray-400 hover:text-orange-500 disabled:opacity-40 transition-colors"
+                title="上传文件"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                </svg>
+              </button>
+            </div>
+            <span className="text-xs text-gray-300">{input.length}/2000</span>
+          </div>
+        </div>
+
+        <button
+          onClick={() => handleSend()}
+          disabled={busy || (!input.trim() && !attachment)}
+          className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {uploadingFile
+            ? '上传中…'
+            : isThinking
+              ? `分析中… ${formatElapsed(thinkingSeconds)}`
+              : isGenerating
+                ? `生成中… ${formatElapsed(generatingSeconds)}`
+                : '确认生成'}
+        </button>
+      </div>
+
+      {/* Modal */}
+      {expandedModal && (
+        <ImageModal run={expandedModal} onClose={() => setExpandedModal(null)} />
       )}
     </div>
   )
 }
 
-function ContentGroup({
-  group,
-  compareIds,
-  onToggleCompare,
-  onExpand,
+function AssistantBubble({
+  msg,
+  onGenerate,
+  disabled,
 }: {
-  group: Group
-  compareIds: string[]
-  onToggleCompare: (id: string) => void
-  onExpand: (id: string) => void
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-baseline justify-between">
-        <p className="text-sm font-medium text-gray-700 truncate max-w-lg">{group.snippet}</p>
-        <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{group.runs.length} 条</span>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-3">
-        {group.runs.map((run) => (
-          <RunCard
-            key={run.id}
-            run={run}
-            selected={compareIds.includes(run.id)}
-            onToggleCompare={() => onToggleCompare(run.id)}
-            onExpand={() => onExpand(run.id)}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function RunCard({
-  run,
-  selected,
-  onToggleCompare,
-  onExpand,
-}: {
-  run: Run
-  selected: boolean
-  onToggleCompare: () => void
-  onExpand: () => void
+  msg: AssistantMsg
+  onGenerate: (params: GenerateParams) => void
+  disabled: boolean
 }) {
   const [promptOpen, setPromptOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [quality, setQuality] = useState<Quality>('low')
+  const [canvas, setCanvas] = useState<Canvas>(msg.canvas)
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(msg.imagePromptEn)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   return (
-    <div
-      className={`rounded-lg border-2 overflow-hidden transition-all ${
-        selected ? 'border-indigo-500 shadow-md shadow-indigo-100' : 'border-transparent'
-      }`}
-    >
-      <div className="relative cursor-pointer" onClick={onExpand}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={run.imageUrl}
-          alt="生成图片"
-          className="w-full h-44 object-cover object-top bg-gray-100"
-        />
-      </div>
-      <div className="px-2 pt-1.5 pb-1 bg-white flex items-center justify-between gap-1">
-        <time className="text-xs text-gray-400" dateTime={run.createdAt}>
-          {new Date(run.createdAt).toLocaleTimeString('zh', {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </time>
-        <div className="flex items-center gap-1">
+    <div className="flex justify-start">
+      <div className="max-w-[85%] bg-gray-50 border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 space-y-2">
+        <p className="text-sm text-gray-800 leading-relaxed">{msg.assistantSummaryCn}</p>
+
+        {msg.warnings && msg.warnings.length > 0 && (
+          <p className="text-xs text-amber-600">⚠️ {msg.warnings.join('；')}</p>
+        )}
+
+        {/* Prompt toggle + copy */}
+        <div className="flex items-center justify-between">
           <button
-            onClick={(e) => { e.stopPropagation(); setPromptOpen((v) => !v) }}
-            className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+            onClick={() => setPromptOpen((v) => !v)}
+            className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
           >
-            {promptOpen ? '收起' : 'Prompt'}
+            {promptOpen ? '▼ 收起 Prompt' : '▶ 查看英文 Prompt'}
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onToggleCompare() }}
-            className={`text-xs px-2 py-0.5 rounded transition-colors ${
-              selected
-                ? 'bg-indigo-100 text-indigo-700'
-                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-            }`}
-          >
-            {selected ? '已选' : '对比'}
-          </button>
-        </div>
-      </div>
-      {promptOpen && (
-        <div className="px-2 pb-2 bg-white">
-          <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-wrap bg-gray-50 rounded p-2 border border-gray-100">
-            {run.promptText}
-          </p>
-          {run.stylePrompt && (
-            <p className="mt-1 text-xs text-gray-400 truncate" title={run.stylePrompt}>
-              风格：{run.stylePrompt}
-            </p>
+          {promptOpen && (
+            <button
+              onClick={handleCopy}
+              className="text-xs text-gray-400 hover:text-orange-500 transition-colors"
+            >
+              {copied ? '已复制' : '复制'}
+            </button>
           )}
         </div>
-      )}
-      {!promptOpen && run.stylePrompt && (
-        <p className="px-2 pb-1.5 text-xs text-gray-400 truncate bg-white" title={run.stylePrompt}>
-          风格：{run.stylePrompt}
+
+        {promptOpen && (
+          <pre className="text-xs text-gray-500 bg-white border border-gray-100 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">
+            {msg.imagePromptEn}
+          </pre>
+        )}
+
+        {/* Controls: canvas / quality */}
+        <div className="space-y-1.5 pt-0.5">
+          {/* Canvas */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 w-6 flex-shrink-0">画布</span>
+            <div className="flex gap-1 flex-1">
+              {(IMAGE_CANVAS_OPTIONS as readonly Canvas[]).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCanvas(c)}
+                  className={`flex-1 py-1 text-xs font-medium rounded-md border transition-colors ${
+                    canvas === c
+                      ? 'bg-orange-500 border-orange-500 text-white'
+                      : 'bg-white border-gray-200 text-gray-500 hover:border-orange-300'
+                  }`}
+                >
+                  {CANVAS_LABELS[c]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Quality */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 w-6 flex-shrink-0">质量</span>
+            <div className="flex gap-1 flex-1">
+              {(IMAGE_QUALITY_OPTIONS as readonly Quality[]).map((q) => (
+                <button
+                  key={q}
+                  onClick={() => setQuality(q)}
+                  className={`flex-1 py-1 text-xs font-medium rounded-md border transition-colors ${
+                    quality === q
+                      ? 'bg-orange-500 border-orange-500 text-white'
+                      : 'bg-white border-gray-200 text-gray-500 hover:border-orange-300'
+                  }`}
+                >
+                  {QUALITY_LABELS[q]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Contextual description */}
+          <p className="text-xs text-gray-400 text-center leading-tight">
+            {QUALITY_DESCS[quality]}
+          </p>
+        </div>
+
+        <button
+          onClick={() =>
+            onGenerate({
+              imagePromptEn: msg.imagePromptEn,
+              artifactSpec: msg.artifactSpec,
+              canvas,
+              quality,
+              inputSummaryCn: msg.inputSummaryCn,
+            })
+          }
+          disabled={disabled}
+          className="w-full py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          确认生成
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function HistoryItem({
+  run,
+  onExpand,
+  onDelete,
+  onRegenerate,
+  disabled,
+}: {
+  run: Run
+  onExpand: () => void
+  onDelete: () => void
+  onRegenerate: () => void
+  disabled: boolean
+}) {
+  return (
+    <div className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+      <div className="flex-1 min-w-0" onClick={onExpand} role="button">
+        <p className="text-sm text-gray-700 line-clamp-2 leading-snug">{run.inputSummaryCn}</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          {new Date(run.createdAt).toLocaleString('zh', {
+            month: 'numeric', day: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          })}
         </p>
-      )}
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={run.imageUrl}
+        alt=""
+        className="w-12 h-16 object-cover rounded-lg cursor-pointer flex-shrink-0 border border-gray-100"
+        onClick={onExpand}
+      />
+      <div className="flex flex-col gap-1 flex-shrink-0">
+        <button
+          onClick={onRegenerate}
+          disabled={disabled}
+          className="text-xs text-gray-400 hover:text-orange-500 disabled:opacity-40 transition-colors leading-none"
+          aria-label="重生成"
+        >
+          重生成
+        </button>
+        <button
+          onClick={onDelete}
+          className="text-gray-300 hover:text-red-400 transition-colors p-0.5"
+          aria-label="删除"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+          </svg>
+        </button>
+      </div>
     </div>
   )
 }
@@ -407,7 +580,7 @@ function ImageModal({ run, onClose }: { run: Run; onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
@@ -415,7 +588,7 @@ function ImageModal({ run, onClose }: { run: Run; onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={run.imageUrl} alt="生成图片" className="max-w-xs w-full rounded-xl" />
+        <img src={run.imageUrl} alt="生成图片" className="max-w-sm w-full rounded-xl" />
         <div className="flex items-center justify-between mt-2 px-1">
           <span className="text-sm text-gray-300">
             {new Date(run.createdAt).toLocaleString('zh')}
@@ -428,40 +601,6 @@ function ImageModal({ run, onClose }: { run: Run; onClose: () => void }) {
           </button>
         </div>
       </div>
-      <button
-        onClick={onClose}
-        className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl leading-none"
-        aria-label="关闭"
-      >
-        ✕
-      </button>
-    </div>
-  )
-}
-
-function CompareModal({ runs, onClose }: { runs: [Run, Run]; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 bg-black/80 z-50 flex gap-6 p-6 overflow-auto"
-      onClick={onClose}
-    >
-      {runs.map((run) => (
-        <div
-          key={run.id}
-          className="flex-1 flex flex-col items-center gap-2 min-w-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="text-white text-sm font-medium">
-            {new Date(run.createdAt).toLocaleString('zh')}
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={run.imageUrl}
-            alt="生成图片"
-            className="w-full max-w-xs rounded-xl"
-          />
-        </div>
-      ))}
       <button
         onClick={onClose}
         className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl leading-none"

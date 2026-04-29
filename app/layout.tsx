@@ -6,8 +6,8 @@ const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Prompt Lab',
-  description: '图片生成 prompt 调试工具',
+  title: '瞬见',
+  description: '长文转信息图，一目了然',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

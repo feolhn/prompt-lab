@@ -1,5 +1,5 @@
 import { kv } from '@vercel/kv'
-import { put } from '@vercel/blob'
+import { put, del } from '@vercel/blob'
 import { createHash } from 'crypto'
 import { createClient } from 'redis'
 import type { Run } from './types'
@@ -62,6 +62,34 @@ export async function getAllRuns(): Promise<Run[]> {
   }
 
   return raw.map((r) => JSON.parse(r) as Run)
+}
+
+export async function getRun(id: string): Promise<Run | null> {
+  const runs = await getAllRuns()
+  return runs.find((r) => r.id === id) ?? null
+}
+
+export async function deleteRun(id: string): Promise<void> {
+  const run = await getRun(id)
+  if (!run) return
+
+  const allRuns = await getAllRuns()
+  const remaining = allRuns.filter((r) => r.id !== id)
+
+  if (storeMode === 'kv') {
+    await kv.del(RUNS_KEY)
+    if (remaining.length > 0) {
+      await kv.rpush(RUNS_KEY, ...remaining.map((r) => JSON.stringify(r)))
+    }
+  } else if (storeMode === 'redis') {
+    const client = await getRedisClient()
+    await client.del(RUNS_KEY)
+    if (remaining.length > 0) {
+      await client.rPush(RUNS_KEY, remaining.map((r) => JSON.stringify(r)))
+    }
+  }
+
+  await del(run.imageUrl)
 }
 
 export async function uploadImage(imageBase64: string, runId: string): Promise<string> {
