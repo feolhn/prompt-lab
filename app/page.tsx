@@ -4,6 +4,7 @@ import type { Run } from '@/lib/types'
 
 // gpt-image-2 生成可能需要 60-120 秒
 export const maxDuration = 300
+export const dynamic = 'force-dynamic'
 
 export default async function Page() {
   let initialRuns: Run[] = []

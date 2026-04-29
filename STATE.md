@@ -83,6 +83,16 @@
 - `lib/providers/kimi.ts` 不再发送 `type: "file"`；PDF 附件会作为普通文本 part 传给 Kimi。
 - 如果 PDF 没有提前提取文本，provider 会 fail fast：`PDF 附件尚未提取文本`。
 
+### 问题 5：新开页面看不到刚生成的历史记录
+
+**现象**：当前会话生成后能看到图片气泡，但另开链接的历史记录没有刚生成的图片。
+
+**根本原因**：`app/page.tsx` 被 Next 预渲染为静态页面（build 输出 `○ /`），`initialRuns` 是构建时读到的历史，不会在每次新请求时重新读取 Redis。
+
+**处理结果（2026-04-29）**：
+- `app/page.tsx` 增加 `export const dynamic = 'force-dynamic'`。
+- 本地 build 输出已确认 `/` 从 `○` 变为 `ƒ`，新页面会动态读取最新持久化历史。
+
 ---
 
 ## 架构说明（供 Codex 参考）
