@@ -1,17 +1,14 @@
 import fs from 'fs'
 import path from 'path'
 import type {
-  ImageCanvas,
-  ImageQuality,
   MaterialUnderstandingProvider,
   ProviderInput,
   ProviderOutput,
 } from './types'
+import { parseProviderJsonOutput } from './prompt-output.js'
 
 const MOONSHOT_API_BASE = 'https://api.moonshot.cn/v1'
 export const KIMI_MODEL = 'kimi-k2.6'
-const KIMI_CANVAS_OPTIONS: readonly ImageCanvas[] = ['1024x1536', '1536x1024', '1024x1024']
-const KIMI_QUALITY_OPTIONS: readonly ImageQuality[] = ['low', 'medium', 'high']
 
 function loadSkillPrompt(): string {
   const skillPath = path.join(process.cwd(), 'lib', 'providers', 'skill-prompt.md')
@@ -216,50 +213,16 @@ export function buildKimiRequestBody(
   return body
 }
 
-function parseOutput(text: string, durationMs: number): ProviderOutput {
-  let parsed: Partial<ProviderOutput>
-  try {
-    parsed = JSON.parse(text) as Partial<ProviderOutput>
-  } catch {
-    throw new Error(`Kimi 返回的 JSON 无法解析：${text.slice(0, 300)}`)
-  }
-
-  if (!parsed.imagePromptEn || !parsed.assistantSummaryCn) {
-    throw new Error(`Kimi 返回结构不完整：${text.slice(0, 300)}`)
-  }
-
-  const canvas = KIMI_CANVAS_OPTIONS.includes(parsed.canvas as ImageCanvas)
-    ? parsed.canvas as ImageCanvas
-    : '1024x1536'
-  const qualityHint = KIMI_QUALITY_OPTIONS.includes(parsed.qualityHint as ImageQuality)
-    ? parsed.qualityHint as ImageQuality
-    : 'low'
-
-  return {
-    assistantSummaryCn: parsed.assistantSummaryCn,
-    imagePromptEn: parsed.imagePromptEn,
-    artifactSpec: parsed.artifactSpec ?? '',
-    canvas,
-    qualityHint,
-    inputSummaryCn: parsed.inputSummaryCn ?? '',
-    warnings: parsed.warnings ?? [],
-    providerDiagnostics: {
-      model: KIMI_MODEL,
-      durationMs,
-    },
-  }
-}
-
 export const kimiProvider: MaterialUnderstandingProvider = {
   async draft(input: ProviderInput): Promise<ProviderOutput> {
     const messages = buildMessages(input, false)
     const { text, durationMs } = await callKimi(messages, { allowWebSearch: input.allowWebSearch })
-    return parseOutput(text, durationMs)
+    return parseProviderJsonOutput(text, KIMI_MODEL, durationMs)
   },
 
   async revise(input: ProviderInput): Promise<ProviderOutput> {
     const messages = buildMessages(input, true)
     const { text, durationMs } = await callKimi(messages, { allowWebSearch: input.allowWebSearch })
-    return parseOutput(text, durationMs)
+    return parseProviderJsonOutput(text, KIMI_MODEL, durationMs)
   },
 }

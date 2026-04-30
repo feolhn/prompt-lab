@@ -4,6 +4,9 @@ export type ImageCanvas = (typeof IMAGE_CANVAS_OPTIONS)[number]
 export const IMAGE_QUALITY_OPTIONS = ['low', 'medium', 'high'] as const
 export type ImageQuality = (typeof IMAGE_QUALITY_OPTIONS)[number]
 
+export const ANALYSIS_PROVIDER_OPTIONS = ['kimi', 'poe-gemini'] as const
+export type AnalysisProvider = (typeof ANALYSIS_PROVIDER_OPTIONS)[number]
+
 export type ConversationMessage = {
   role: 'user' | 'assistant'
   content: string
@@ -23,6 +26,7 @@ export type ProviderInput = {
   conversation?: ConversationMessage[]
   previousSpec?: string
   allowWebSearch?: boolean
+  analysisProvider?: AnalysisProvider
 }
 
 export type ProviderOutput = {

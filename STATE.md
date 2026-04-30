@@ -202,6 +202,23 @@ app/api/uploads/token/route.ts  # Vercel Blob 直传 token
 - 删除信息密度控件：`密度` 原实现是在客户端给 `imagePromptEn` 追加英文 layout hint，效果不稳定且绕过 skill 判断；已移除。当前客户端不再拼接/改写生图 prompt，`imagePromptEn` 直接来自 Kimi/skill。
 - Poe request builder 单测覆盖默认 `1024x1536` / `low` 和显式 `1536x1024` / `high`
 
+### 本地验证（2026-04-30 解析引擎分流）
+
+- 新增 `analysisProvider: "kimi" | "poe-gemini"`；API route 按该字段选择解析引擎，不做 fallback chain。
+- `kimi` 仍走原 Kimi/Kimi Files/Kimi fetch 链路；`poe-gemini` 走 Poe Gemini Flash。
+- Poe Gemini 无附件/URL 输入：走 Poe OpenAI-compatible `/v1/chat/completions`，URL 文本会追加 `--web_search true`。
+- Poe Gemini 附件输入：走 Poe file upload HTTP endpoint + Poe Bot SSE 协议，纯 TypeScript 实现，不依赖 Vercel 上安装 Python/fastapi_poe。
+- 最小验证：
+  - `integration-lab`：`/opt/anaconda3/bin/python3 poe/gemini-flash/file-sdk.py /Users/hujiawei/Downloads/Thinking_with_Visual_Primitives\(1\).pdf` ✅
+  - Poe Gemini GitHub URL `https://github.com/vercel/next.js` ✅
+  - Poe Gemini X/Twitter URL `https://x.com/vercel` ✅
+  - Prompt Lab TS provider 纯文本 draft ✅，约 5.25s
+  - Prompt Lab TS provider PDF 附件 draft ✅，Poe upload 约 1.6s，Gemini Bot 约 4.0s
+- Claude UI handoff：`app/_components/PromptLab.tsx` 已有 `analysisProvider` state 和请求体字段，当前默认 `"kimi"`；UI 只需把它改成"国内/国外"按钮并调用 setter：
+  - 国内 = `kimi`
+  - 国外 = `poe-gemini`
+  - 不要自动 fallback；选哪个就传哪个。
+
 ### Preview 验证（2026-04-29）
 
 - Latest Preview URL: `https://prompt-f6eyxdty9-feolhns-projects.vercel.app`

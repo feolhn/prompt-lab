@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { upload } from '@vercel/blob/client'
 import type { Run } from '@/lib/types'
-import type { ProviderOutput, ConversationMessage, ImageCanvas, ImageQuality } from '@/lib/providers/types'
+import type { ProviderOutput, ConversationMessage, ImageCanvas, ImageQuality, AnalysisProvider } from '@/lib/providers/types'
 import { IMAGE_CANVAS_OPTIONS, IMAGE_QUALITY_OPTIONS } from '@/lib/providers/types'
 
 type Quality = ImageQuality
@@ -105,6 +105,7 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
   const [generatingSeconds, setGeneratingSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [expandedModal, setExpandedModal] = useState<Run | null>(null)
+  const [analysisProvider] = useState<AnalysisProvider>('kimi')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const [uploadingFile, setUploadingFile] = useState(false)
@@ -176,6 +177,7 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
           text,
           attachments: attachment ? [attachment] : [],
           conversation: hasPrior ? conversation : undefined,
+          analysisProvider,
         }),
       })
       const data = await readJsonResponse<ProviderOutput>(res)

@@ -4,7 +4,11 @@ import { fetchUrlWithKimi } from './providers/kimi-fetch'
 import { isHttpUrl, normalizeUrlInput } from './url-content'
 
 export async function prepareProviderInput(input: ProviderInput, mode: 'draft' | 'revise'): Promise<ProviderInput> {
-  const prepared: ProviderInput = await prepareProviderAttachments({ ...input })
+  const prepared: ProviderInput = input.analysisProvider === 'poe-gemini'
+    ? { ...input }
+    : await prepareProviderAttachments({ ...input })
+
+  if (input.analysisProvider === 'poe-gemini') return prepared
 
   if (prepared.text) {
     await applyUrlContentFetch(prepared, prepared.text, (text) => {
