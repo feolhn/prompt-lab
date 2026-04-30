@@ -3,12 +3,10 @@ import path from 'path'
 import type { ConversationMessage, MaterialUnderstandingProvider, ProviderAttachment, ProviderInput, ProviderOutput } from './types'
 import { parseProviderJsonOutput } from './prompt-output.js'
 
-const POE_CHAT_COMPLETIONS_URL = 'https://api.poe.com/v1/chat/completions'
 const POE_BOT_BASE_URL = 'https://api.poe.com/bot'
 const POE_FILE_UPLOAD_URL = 'https://www.quora.com/poe_api/file_upload_3RD_PARTY_POST'
 export const DEFAULT_POE_GEMINI_MODEL = 'Gemini-3.1-Flash-Lite'
 
-type PoeChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 type PoeProtocolAttachment = { url: string; content_type: string; name: string }
 type PoeProtocolMessage = {
   role: 'system' | 'user' | 'bot'
@@ -54,59 +52,6 @@ function requiresWebSearch(text: string): boolean {
 function withWebSearchHint(text: string): string {
   if (!requiresWebSearch(text) || text.includes('--web_search true')) return text
   return `${text}\n\n--web_search true`
-}
-
-function buildDraftChatMessages(input: ProviderInput): PoeChatMessage[] {
-  const text = input.text?.trim() || '请基于用户提供的附件内容生成信息图 Prompt。'
-  return [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: withWebSearchHint(text) },
-  ]
-}
-
-function buildReviseChatMessages(input: ProviderInput): PoeChatMessage[] {
-  const messages: PoeChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }]
-  for (const msg of input.conversation ?? []) {
-    const content = msg.content.trim()
-    if (!content) continue
-    messages.push({
-      role: msg.role === 'assistant' ? 'assistant' : 'user',
-      content: msg.role === 'user' ? withWebSearchHint(content) : content,
-    })
-  }
-  if (messages.length === 1) throw new Error('修改意见为空，请输入需要调整的内容')
-  return messages
-}
-
-async function callPoeChatCompletions(messages: PoeChatMessage[]): Promise<{ text: string; durationMs: number }> {
-  const apiKey = process.env.POE_API_KEY
-  if (!apiKey) throw new Error('未配置 POE_API_KEY')
-
-  const model = getPoeGeminiModel()
-  const startedAt = Date.now()
-  const res = await fetch(POE_CHAT_COMPLETIONS_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      response_format: { type: 'json_object' },
-      stream: false,
-    }),
-  })
-
-  const durationMs = Date.now() - startedAt
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Poe Gemini API 错误（${res.status}）：${body.slice(0, 300)}`)
-  }
-
-  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown }
-  console.log('[Poe Gemini] ← chat durationMs:', durationMs, '| usage:', JSON.stringify(data.usage))
-  return { text: data.choices?.[0]?.message?.content ?? '', durationMs }
 }
 
 async function uploadPoeAttachment(attachment: ProviderAttachment): Promise<PoeProtocolAttachment> {
@@ -259,15 +204,12 @@ function parseSseEventText(rawEvent: string): string {
 
 export const poeGeminiProvider: MaterialUnderstandingProvider = {
   async draft(input: ProviderInput): Promise<ProviderOutput> {
-    const hasAttachments = Boolean(input.attachments?.length)
-    const { text, durationMs } = hasAttachments
-      ? await callPoeBot(await buildProtocolMessages(input, false))
-      : await callPoeChatCompletions(buildDraftChatMessages(input))
+    const { text, durationMs } = await callPoeBot(await buildProtocolMessages(input, false))
     return parseProviderJsonOutput(text, getPoeGeminiModel(), durationMs)
   },
 
   async revise(input: ProviderInput): Promise<ProviderOutput> {
-    const { text, durationMs } = await callPoeChatCompletions(buildReviseChatMessages(input))
+    const { text, durationMs } = await callPoeBot(await buildProtocolMessages(input, true))
     return parseProviderJsonOutput(text, getPoeGeminiModel(), durationMs)
   },
 }

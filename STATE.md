@@ -206,8 +206,8 @@ app/api/uploads/token/route.ts  # Vercel Blob 直传 token
 
 - 新增 `analysisProvider: "kimi" | "poe-gemini"`；API route 按该字段选择解析引擎，不做 fallback chain。
 - `kimi` 仍走原 Kimi/Kimi Files/Kimi fetch 链路；`poe-gemini` 走 Poe Gemini Flash。
-- Poe Gemini 无附件/URL 输入：走 Poe OpenAI-compatible `/v1/chat/completions`，URL 文本会追加 `--web_search true`。
-- Poe Gemini 附件输入：走 Poe file upload HTTP endpoint + Poe Bot SSE 协议，纯 TypeScript 实现，不依赖 Vercel 上安装 Python/fastapi_poe。
+- Poe Gemini 统一走 Poe Bot SSE 协议；无附件时直接发消息，有附件时先走 Poe file upload HTTP endpoint，再把 attachment 挂到同一条 Bot 请求。
+- 产品代码不使用 Poe OpenAI-compatible `chat/completions` 做解析；该路径只保留在 `integration-lab` 作为独立 smoke/备用参考。
 - 最小验证：
   - `integration-lab`：`/opt/anaconda3/bin/python3 poe/gemini-flash/file-sdk.py /Users/hujiawei/Downloads/Thinking_with_Visual_Primitives\(1\).pdf` ✅
   - Poe Gemini GitHub URL `https://github.com/vercel/next.js` ✅
