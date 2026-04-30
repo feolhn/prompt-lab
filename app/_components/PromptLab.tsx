@@ -105,7 +105,7 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
   const [generatingSeconds, setGeneratingSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [expandedModal, setExpandedModal] = useState<Run | null>(null)
-  const [analysisProvider] = useState<AnalysisProvider>('kimi')
+  const [analysisProvider, setAnalysisProvider] = useState<AnalysisProvider>('kimi')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const [uploadingFile, setUploadingFile] = useState(false)
@@ -232,7 +232,28 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
       {/* Header */}
       <header className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 flex-shrink-0">
         <h1 className="font-semibold text-base tracking-tight">瞬见</h1>
-        <span className="text-xs text-gray-400 ml-auto">长文转信息图，一目了然</span>
+        <div className="ml-auto flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+          <button
+            onClick={() => setAnalysisProvider('kimi')}
+            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+              analysisProvider === 'kimi'
+                ? 'bg-white text-gray-800 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            国内
+          </button>
+          <button
+            onClick={() => setAnalysisProvider('poe-gemini')}
+            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+              analysisProvider === 'poe-gemini'
+                ? 'bg-white text-gray-800 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            国外
+          </button>
+        </div>
       </header>
 
       {/* Scrollable body */}
