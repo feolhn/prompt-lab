@@ -22,6 +22,11 @@ const CANVAS_LABELS: Record<Canvas, string> = {
   '1024x1024': '方版',
 }
 
+const PROVIDER_OPTIONS: { value: AnalysisProvider; label: string; model: string; description: string }[] = [
+  { value: 'kimi',       label: '国内', model: 'kimi-k2.6',            description: '中文内容更准，支持联网抓取' },
+  { value: 'poe-gemini', label: '国外', model: 'Gemini-3.1-Flash-Lite', description: '英文/海外内容，经由 Poe' },
+]
+
 const QUICK_CHIPS = ['更简洁', '换配色', '更多细节', '中英双语', '突出关键数字']
 
 const THINKING_PHRASES = [
@@ -106,6 +111,7 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
   const [error, setError] = useState<string | null>(null)
   const [expandedModal, setExpandedModal] = useState<Run | null>(null)
   const [analysisProvider, setAnalysisProvider] = useState<AnalysisProvider>('kimi')
+  const [providerMenuOpen, setProviderMenuOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const [uploadingFile, setUploadingFile] = useState(false)
@@ -413,32 +419,40 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
                 </svg>
               </button>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
-                  <button
-                    onClick={() => setAnalysisProvider('kimi')}
-                    className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                      analysisProvider === 'kimi'
-                        ? 'bg-white text-gray-700 shadow-sm font-medium'
-                        : 'text-gray-400 hover:text-gray-600'
-                    }`}
-                  >
-                    国内
-                  </button>
-                  <button
-                    onClick={() => setAnalysisProvider('poe-gemini')}
-                    className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                      analysisProvider === 'poe-gemini'
-                        ? 'bg-white text-gray-700 shadow-sm font-medium'
-                        : 'text-gray-400 hover:text-gray-600'
-                    }`}
-                  >
-                    国外
-                  </button>
-                </div>
-                <span className="text-xs text-gray-400">
-                  {analysisProvider === 'kimi' ? 'Kimi · 中文内容' : 'Gemini · 英文/海外'}
-                </span>
+              <div className="relative">
+                <button
+                  onClick={() => setProviderMenuOpen((v) => !v)}
+                  className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                >
+                  <span className="text-xs font-medium text-gray-700">
+                    {PROVIDER_OPTIONS.find((o) => o.value === analysisProvider)?.label}
+                  </span>
+                  <span className="text-gray-400 text-xs">▾</span>
+                </button>
+                {providerMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setProviderMenuOpen(false)} />
+                    <div className="absolute bottom-full mb-1.5 left-0 z-20 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden w-64">
+                      {PROVIDER_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => { setAnalysisProvider(opt.value); setProviderMenuOpen(false) }}
+                          className={`w-full text-left px-3 py-2.5 transition-colors border-b border-gray-50 last:border-0 ${
+                            analysisProvider === opt.value
+                              ? 'bg-orange-50'
+                              : 'hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium text-gray-800">{opt.label}</span>
+                            <span className="text-xs text-gray-400 font-mono">{opt.model}</span>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">{opt.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <span className="text-xs text-gray-300">{input.length}/2000</span>
