@@ -37,6 +37,8 @@ async function preparePdfAttachment(attachment: ProviderAttachment): Promise<Pro
   const apiKey = process.env.MOONSHOT_API_KEY
   if (!apiKey) throw new Error('未配置 MOONSHOT_API_KEY，无法读取 PDF 附件')
 
+  const startedAt = Date.now()
+  console.log('[Kimi PDF] → download:', attachment.filename)
   const pdfRes = await fetch(attachment.blobUrl)
   if (!pdfRes.ok) {
     const body = await pdfRes.text()
@@ -45,11 +47,14 @@ async function preparePdfAttachment(attachment: ProviderAttachment): Promise<Pro
 
   const pdfBytes = await pdfRes.arrayBuffer()
   if (pdfBytes.byteLength === 0) throw new Error('PDF 附件读取结果为空')
+  console.log('[Kimi PDF] ← download bytes:', pdfBytes.byteLength, '| durationMs:', Date.now() - startedAt)
 
   const form = new FormData()
   form.append('purpose', 'file-extract')
   form.append('file', new Blob([pdfBytes], { type: attachment.mimeType }), attachment.filename)
 
+  const uploadStartedAt = Date.now()
+  console.log('[Kimi PDF] → files upload')
   const uploadRes = await fetch(`${MOONSHOT_API_BASE}/files`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -63,7 +68,10 @@ async function preparePdfAttachment(attachment: ProviderAttachment): Promise<Pro
   const uploadData = await uploadRes.json() as { id?: string }
   const fileId = uploadData.id
   if (!fileId) throw new Error(`Kimi PDF 上传未返回 file id：${JSON.stringify(uploadData).slice(0, 200)}`)
+  console.log('[Kimi PDF] ← files upload id:', fileId, '| durationMs:', Date.now() - uploadStartedAt)
 
+  const extractStartedAt = Date.now()
+  console.log('[Kimi PDF] → files content')
   const contentRes = await fetch(`${MOONSHOT_API_BASE}/files/${fileId}/content`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   })
@@ -74,6 +82,7 @@ async function preparePdfAttachment(attachment: ProviderAttachment): Promise<Pro
 
   const extractedText = (await contentRes.text()).trim()
   if (!extractedText) throw new Error('Kimi PDF 内容提取结果为空')
+  console.log('[Kimi PDF] ← files content chars:', extractedText.length, '| durationMs:', Date.now() - extractStartedAt, '| totalMs:', Date.now() - startedAt)
 
   return { ...attachment, extractedText }
 }

@@ -54,6 +54,18 @@ type GenerateParams = {
   inputSummaryCn: string
 }
 
+function conversationContent(msg: UserMsg | AssistantMsg): string {
+  if (msg.role === 'user') {
+    return msg.text.trim() || (msg.attachmentName ? `用户上传了附件：${msg.attachmentName}` : '')
+  }
+
+  return [
+    `中文摘要：${msg.assistantSummaryCn}`,
+    `英文图片 Prompt：${msg.imagePromptEn}`,
+    `Artifact Spec：${msg.artifactSpec}`,
+  ].join('\n\n')
+}
+
 async function readJsonResponse<T>(res: Response): Promise<T & { error?: string }> {
   const contentType = res.headers.get('content-type') ?? ''
   const body = await res.text()
@@ -151,11 +163,8 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
 
     const conversation: ConversationMessage[] = newMessages
       .filter((m): m is UserMsg | AssistantMsg => m.role === 'user' || m.role === 'assistant')
-      .map((m) =>
-        m.role === 'user'
-          ? { role: 'user' as const, content: m.text }
-          : { role: 'assistant' as const, content: (m as AssistantMsg).assistantSummaryCn },
-      )
+      .map((m) => ({ role: m.role, content: conversationContent(m) }))
+      .filter((m) => m.content.trim().length > 0)
 
     setThinkingSeconds(0)
     setIsThinking(true)

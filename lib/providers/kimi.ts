@@ -59,8 +59,11 @@ function buildMessages(input: ProviderInput, isRevise: boolean) {
 
   if (isRevise && input.conversation && input.conversation.length > 0) {
     for (const msg of input.conversation) {
-      messages.push({ role: msg.role, content: msg.content })
+      const content = msg.content.trim()
+      if (content) messages.push({ role: msg.role, content })
     }
+
+    if (messages.length === 0) throw new Error('修改意见为空，请输入需要调整的内容')
   } else {
     const contentParts: Array<{ type: string; [key: string]: unknown }> = []
 
