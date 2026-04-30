@@ -413,27 +413,32 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
                 </svg>
               </button>
-              <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
-                <button
-                  onClick={() => setAnalysisProvider('kimi')}
-                  className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                    analysisProvider === 'kimi'
-                      ? 'bg-white text-gray-700 shadow-sm font-medium'
-                      : 'text-gray-400 hover:text-gray-600'
-                  }`}
-                >
-                  国内
-                </button>
-                <button
-                  onClick={() => setAnalysisProvider('poe-gemini')}
-                  className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                    analysisProvider === 'poe-gemini'
-                      ? 'bg-white text-gray-700 shadow-sm font-medium'
-                      : 'text-gray-400 hover:text-gray-600'
-                  }`}
-                >
-                  国外
-                </button>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
+                  <button
+                    onClick={() => setAnalysisProvider('kimi')}
+                    className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                      analysisProvider === 'kimi'
+                        ? 'bg-white text-gray-700 shadow-sm font-medium'
+                        : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    国内
+                  </button>
+                  <button
+                    onClick={() => setAnalysisProvider('poe-gemini')}
+                    className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                      analysisProvider === 'poe-gemini'
+                        ? 'bg-white text-gray-700 shadow-sm font-medium'
+                        : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    国外
+                  </button>
+                </div>
+                <span className="text-xs text-gray-400">
+                  {analysisProvider === 'kimi' ? 'Kimi · 中文内容' : 'Gemini · 英文/海外'}
+                </span>
               </div>
             </div>
             <span className="text-xs text-gray-300">{input.length}/2000</span>
