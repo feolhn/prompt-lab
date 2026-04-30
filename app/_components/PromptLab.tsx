@@ -54,6 +54,29 @@ type GenerateParams = {
   inputSummaryCn: string
 }
 
+async function readJsonResponse<T>(res: Response): Promise<T & { error?: string }> {
+  const contentType = res.headers.get('content-type') ?? ''
+  const body = await res.text()
+
+  if (!contentType.includes('application/json')) {
+    const preview = body.trim().slice(0, 200)
+    throw new Error(`服务端返回了非 JSON 响应（${res.status}）：${preview || res.statusText || '空响应'}`)
+  }
+
+  let data: T & { error?: string }
+  try {
+    data = JSON.parse(body) as T & { error?: string }
+  } catch {
+    throw new Error(`服务端 JSON 解析失败（${res.status}）：${body.slice(0, 200)}`)
+  }
+
+  if (!res.ok || data.error) {
+    throw new Error(data.error || `请求失败（${res.status}）`)
+  }
+
+  return data
+}
+
 function formatElapsed(seconds: number) {
   if (seconds < 60) return `${seconds}秒`
   return `${Math.floor(seconds / 60)}分${seconds % 60}秒`
@@ -146,8 +169,7 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
           conversation: hasPrior ? conversation : undefined,
         }),
       })
-      const data = await res.json() as ProviderOutput & { error?: string }
-      if (data.error) throw new Error(data.error)
+      const data = await readJsonResponse<ProviderOutput>(res)
       setMessages((prev) => [...prev, { role: 'assistant', ...data }])
     } catch (err) {
       setError(err instanceof Error ? err.message : '分析失败，请重试')
@@ -173,8 +195,7 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
           inputSummaryCn,
         }),
       })
-      const data = await res.json() as Run & { error?: string }
-      if (data.error) throw new Error(data.error)
+      const data = await readJsonResponse<Run>(res)
       setMessages((prev) => [...prev, { role: 'image', run: data }])
       setRuns((prev) => [data, ...prev])
     } catch (err) {

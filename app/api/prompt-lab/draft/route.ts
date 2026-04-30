@@ -3,7 +3,7 @@ import { kimiProvider } from '@/lib/providers/kimi'
 import type { ProviderInput } from '@/lib/providers/types'
 import { prepareProviderInput } from '@/lib/provider-input'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
   try {
