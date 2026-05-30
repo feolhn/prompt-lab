@@ -239,8 +239,20 @@ export function PromptLab({ initialRuns }: { initialRuns: Run[] }) {
     <div className="flex flex-col h-full bg-white text-gray-900 max-w-lg mx-auto">
       {/* Header */}
       <header className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 flex-shrink-0">
-        <h1 className="font-semibold text-base tracking-tight">瞬见</h1>
-        <span className="text-xs text-gray-400 ml-auto">长文转信息图，一目了然</span>
+        <a
+          href="https://feolhn.cn/"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-orange-600 transition-colors"
+          aria-label="返回主页"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5L12 3l9 7.5M5.25 9.75V21h13.5V9.75M9 21v-6h6v6" />
+          </svg>
+          <span>返回主页</span>
+        </a>
+        <div className="ml-auto text-right leading-tight">
+          <h1 className="font-semibold text-base tracking-tight">瞬见</h1>
+          <span className="text-xs text-gray-400">长文转信息图，一目了然</span>
+        </div>
       </header>
 
       {/* Scrollable body */}
